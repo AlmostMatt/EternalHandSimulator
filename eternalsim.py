@@ -1,4 +1,6 @@
-import re, random
+import random
+import decklist_parser
+import card_info
 
 '''
 'good hand' simulator
@@ -14,6 +16,13 @@ can also define tiers of hands, and odds of each given mull
 
 TODO: move data to a separate file (data => which cards are which types
 TODO: simulate cards 'plays unit' for banner, 'draws card' for card-draw
+
+# TODO: 'good hand function generator functions'
+# Then a good_hand definition can be created with AND(HAS_POWER(3,5), HAS_INFLUENCE('TPS'))
+
+# TODO: have a concept of 'things that are bad for a hand' and count how many problems a hand has. A hand is good if the problem count is <= x, or strength count is >=y
+
+TODO: output information on why hands are generally bad (too much power, too little power, missing influence) and also on redundant influence
 '''
 
 decklist = '''
@@ -50,37 +59,8 @@ decklist = '''
 1 Praxis Banner (Set2 #171)
 '''
 
-def parse_decklist(deck_txt):
-  deck_txt = deck_txt.lower()
-  deck = []
-  # TODO: --------------MARKET---------------
-  for line in deck_txt.splitlines():
-    line = line.split(' (')[0]
-    if ' ' not in line: continue
-    count, card_name = line.split(' ', 1)
-    deck += int(count) * [card_name]
-  return deck
-
-def is_power(card):
-  return re.search(' banner| sigil|waystone|crest |diplomatic seal|common cause', card) != None
-
-def is_pledge(card):
-  # TODO: have a separate file with pledge card data
-  return re.search('severin, the mad mage', card) != None
-
-def get_influence_produced(card):
-  # TODO: have a separate file with power card data
-  return False
-
-def get_required_influence(card):
-  # TODO: have a separate file with power and influence cost data
-  return False
-
-def is_depleted(card, board, hand, influence):
-  return False
-
 def count_power(cards):
-  power_in_hand = sum(is_power(card) for card in cards)
+  power_in_hand = sum(card_info.is_power(card) for card in cards)
 
 def draw_hand(deck, draw_number):
   if draw_number not in (1,2,3):
@@ -92,32 +72,43 @@ def draw_hand(deck, draw_number):
     while count_power(hand) in (0,7):
       hand = deck[:7]
   else:
-    deck_power = [card for card in deck if is_power(card)]
-    deck_non_power = [card for card in deck if not is_power(card)]
+    deck_power = [card for card in deck if card_info.is_power(card)]
+    deck_non_power = [card for card in deck if not card_info.is_power(card)]
     num_power = random.randint(2,4)
     hand = deck_power[:num_power] + deck_non_power[:hand_size - num_power]
   return hand
 
 
 def mulligan_for_good_hand(deck_txt, good_hand_fn):
-  deck = parse_decklist(deck_txt)
+  deck = decklist_parser.parse_decklist(deck_txt)
   for i in range(1,4):
     hand = draw_hand(deck, 1)
     if good_hand_fn(hand):
       return True
   return False
 
-def has_345_power(hand):
-  power_in_hand = sum(is_power(card) for card in hand)
-  pledge_in_hand = 1 if any(is_pledge(card) for card in hand) else 0
+def has_345_power_and_tps_influence(hand):
+  power_in_hand = sum(card_info.is_power(card) for card in hand)
+  pledge_in_hand = 1 if any(card_info.is_pledge(card) for card in hand) else 0
   # only use the pledge card as power if you would otherwise have too little power
-  return (power_in_hand in (3,4,5)) or (pledge_in_hand + power_in_hand == 3)
+  influence_in_hand = set()
+  for card in hand:
+    # TODO: use the 'goal' for choices like diplo and pledge
+    # TODO: use a counter object to support multiple of the same influence
+    influence_from_card, is_choose_one_card = card_info.get_influence_produced(card)
+    influence_in_hand.update(influence_from_card)
+  #print('this hand\'s influence is %s' % influence_in_hand)
+  good_amount_of_power = (power_in_hand in (3,4,5)) or (pledge_in_hand + power_in_hand == 3)
+  good_influence = set('TPS').issubset(influence_in_hand)
+  if not good_influence:
+    print('This hand is missing: %s' % (set('TPS') - influence_in_hand))
+  return good_amount_of_power and good_influence
 
 def main():
-  simulation_count = 1000
+  simulation_count = 10
   good_hands = 0
   for _ in range(simulation_count):
-    good_hands += 1 if mulligan_for_good_hand (decklist, has_345_power) else 0
+    good_hands += 1 if mulligan_for_good_hand (decklist, has_345_power_and_tps_influence) else 0
   print('%s%% of %s hands were good' % (100 * good_hands // simulation_count, simulation_count))
 
 if __name__ == '__main__':
